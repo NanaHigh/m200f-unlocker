@@ -1,0 +1,7 @@
+name: finger
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - tk          # tkinter（Linux 打包/运行时需要；Windows 下 Anaconda 自带）
