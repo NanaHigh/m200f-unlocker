@@ -13,13 +13,15 @@ finger_tool_gui.py —— M200F 指纹 U 盘解锁（图形界面版，自包含
     python finger_tool_gui.py                # 启动界面并自动检测/解锁
     python finger_tool_gui.py --selftest     # 只检测设备并打印结果（不开窗口）
 
-说明：协议在 Windows 上经过真机验证；Linux/macOS 后端已实现但尚未真机验证。
+说明：协议在 Windows 与 Linux（SG_IO）上经过真机验证；
+      macOS 后端（pyusb）已实现但尚未真机验证。
 
 English summary:
   Self-contained tkinter GUI for the Hikvision M200F fingerprint USB drive.
   Dark "radar" theme; auto-selects the SCSI backend per platform
   (Windows DeviceIoControl / Linux SG_IO / macOS pyusb CBW-CSW).
-  Verified on Windows only so far.
+  Verified on Windows and Linux (SG_IO); macOS backend (pyusb) implemented
+  but not yet validated.
 """
 
 import argparse
@@ -28,6 +30,7 @@ import glob
 import math
 import os
 import queue
+import re
 import struct
 import sys
 import threading
@@ -62,7 +65,6 @@ def hx(b):
 
 
 def parse_hex(text):
-    import re
     return bytes.fromhex(re.sub(r"\s+", "", text.strip().replace("0x", "")))
 
 
@@ -195,6 +197,8 @@ class SgBackend:
             ("masked_status", ctypes.c_ubyte),
             ("msg_status", ctypes.c_ubyte),
             ("sb_len_wr", ctypes.c_ubyte),
+            ("host_status", ctypes.c_ushort),
+            ("driver_status", ctypes.c_ushort),
             ("resid", ctypes.c_int),
             ("duration", ctypes.c_uint),
             ("info", ctypes.c_uint),
@@ -224,6 +228,9 @@ class SgBackend:
         if self.fd is None:
             self.open()
         libc = ctypes.CDLL(None, use_errno=True)
+        # 必须显式声明，否则 ioctl 请求号会按 32 位 int 截断（0xC0505310 会传错）
+        libc.ioctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_void_p]
+        libc.ioctl.restype = ctypes.c_int
         sense = (ctypes.c_ubyte * 32)()
         cdb_buf = (ctypes.c_ubyte * 16)()
         for i, b in enumerate(cdb):
@@ -242,7 +249,8 @@ class SgBackend:
         sg.cmdp = ctypes.cast(cdb_buf, ctypes.c_void_p)
         sg.sbp = ctypes.cast(sense, ctypes.c_void_p)
         sg.timeout = timeout * 1000
-        ioctl_nr = (3 << 30) | (ctypes.sizeof(self.SgIoHdr) << 16) | (0x53 << 8) | 0x10
+        # Linux sg.h 中 SG_IO 是固定魔数 0x2285（不是按结构体大小计算的 _IOWR）
+        ioctl_nr = 0x2285
         if libc.ioctl(self.fd, ioctl_nr, ctypes.byref(sg)) != 0:
             raise OSError(ctypes.get_errno(), "SG_IO failed on %s" % self.path)
         return bytes(data) if datalen else b""
@@ -259,6 +267,7 @@ class UsbBulkBackend:
         self.ep_out, self.ep_in = ep_out, ep_in
         self.dev = None
         self.tag = 0
+        self.last_status = 0
 
     @property
     def label(self):
@@ -297,6 +306,7 @@ class UsbBulkBackend:
                 got += len(chunk)
             data = data[:datalen]
         csw = bytes(self.dev.read(self.ep_in, 13, timeout=timeout * 1000))
+        self.last_status = csw[12] if len(csw) > 12 else -1
         return data
 
 

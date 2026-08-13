@@ -3,7 +3,6 @@ name: build
 on:
   workflow_dispatch:
   push:
-    branches: [main]
     tags: ["v*"]
 
 permissions:
@@ -30,11 +29,22 @@ jobs:
           python-version: "3.9"
 
       - name: 安装构建依赖
-        run: pip install pyinstaller
+        run: pip install pyinstaller pyusb
 
       - name: Linux 安装 tkinter
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: 计算版本号
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"        # tag v1.2.3 -> 1.2.3
+          else
+            VERSION="dev-${GITHUB_SHA::8}"        # 手动运行 -> dev-<短SHA>
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: 打包 CLI + GUI（PyInstaller）
         run: |
@@ -45,21 +55,22 @@ jobs:
         shell: bash
         run: |
           cd dist
+          echo "${{ steps.ver.outputs.version }}" > VERSION
           if [ "${{ runner.os }}" = "Windows" ]; then
-            powershell -Command "Compress-Archive -Path finger_tool_cli,finger_tool_gui -DestinationPath m200f-${{ matrix.name }}.zip -Force"
+            powershell -Command "Compress-Archive -Path finger_tool_cli,finger_tool_gui,VERSION -DestinationPath m200f-${{ matrix.name }}-${{ steps.ver.outputs.version }}.zip -Force"
           else
-            zip -r m200f-${{ matrix.name }}.zip finger_tool_cli finger_tool_gui
+            zip -r m200f-${{ matrix.name }}-${{ steps.ver.outputs.version }}.zip finger_tool_cli finger_tool_gui VERSION
           fi
 
       - name: 上传到 GitHub Release（打 tag 时）
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/m200f-${{ matrix.name }}.zip
+          files: dist/m200f-${{ matrix.name }}-${{ steps.ver.outputs.version }}.zip
 
       - name: 上传 Artifact（手动运行时）
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: m200f-${{ matrix.name }}
+          name: m200f-${{ matrix.name }}-${{ steps.ver.outputs.version }}
           path: dist/*

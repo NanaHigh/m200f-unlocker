@@ -5,3 +5,6 @@ channels:
 dependencies:
   - python=3.9
   - tk          # tkinter（Linux 打包/运行时需要；Windows 下 Anaconda 自带）
+  - pip
+  - pip:
+      - pyusb>=1.3   # macOS/其它平台的 USB 兜底后端（Linux 主通路 SG_IO 不需要）

@@ -14,19 +14,22 @@ finger_tool_cli.py —— M200F 指纹 U 盘解锁（命令行版，自包含，
     python finger_tool_cli.py --detect      # 只检测设备并打印盘号/固件/Secure 卷
     python finger_tool_cli.py --scsi <hex> [datalen]   # 手动发一条 SCSI 命令
 
-说明：协议在 Windows 上经过真机验证；Linux/macOS 后端已实现但尚未真机验证。
+说明：协议在 Windows 与 Linux（SG_IO）上经过真机验证；
+      macOS 后端（pyusb）已实现但尚未真机验证。
 
 English summary:
   Self-contained CLI unlocker for the Hikvision M200F fingerprint USB drive.
   Auto-selects the SCSI backend per platform: Windows DeviceIoControl,
   Linux /dev/sgX SG_IO (pure ctypes), macOS/others pyusb CBW/CSW.
-  Verified on Windows only so far.
+  Verified on Windows and Linux (SG_IO); macOS backend (pyusb) implemented
+  but not yet validated.
 """
 
 import argparse
 import ctypes
 import glob
 import os
+import re
 import struct
 import sys
 import time
@@ -52,7 +55,6 @@ def hx(b):
 
 
 def parse_hex(text):
-    import re
     return bytes.fromhex(re.sub(r"\s+", "", text.strip().replace("0x", "")))
 
 
@@ -190,6 +192,8 @@ class SgBackend:
             ("masked_status", ctypes.c_ubyte),
             ("msg_status", ctypes.c_ubyte),
             ("sb_len_wr", ctypes.c_ubyte),
+            ("host_status", ctypes.c_ushort),
+            ("driver_status", ctypes.c_ushort),
             ("resid", ctypes.c_int),
             ("duration", ctypes.c_uint),
             ("info", ctypes.c_uint),
@@ -219,6 +223,9 @@ class SgBackend:
         if self.fd is None:
             self.open()
         libc = ctypes.CDLL(None, use_errno=True)
+        # 必须显式声明，否则 ioctl 请求号会按 32 位 int 截断（0xC0505310 会传错）
+        libc.ioctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_void_p]
+        libc.ioctl.restype = ctypes.c_int
         sense = (ctypes.c_ubyte * 32)()
         cdb_buf = (ctypes.c_ubyte * 16)()
         for i, b in enumerate(cdb):
@@ -237,8 +244,8 @@ class SgBackend:
         sg.cmdp = ctypes.cast(cdb_buf, ctypes.c_void_p)
         sg.sbp = ctypes.cast(sense, ctypes.c_void_p)
         sg.timeout = timeout * 1000
-        # _IOWR('S', 0x10, sizeof(sg_io_hdr)) — computed for 32/64-bit
-        ioctl_nr = (3 << 30) | (ctypes.sizeof(self.SgIoHdr) << 16) | (0x53 << 8) | 0x10
+        # Linux sg.h 中 SG_IO 是固定魔数 0x2285（不是按结构体大小计算的 _IOWR）
+        ioctl_nr = 0x2285
         if libc.ioctl(self.fd, ioctl_nr, ctypes.byref(sg)) != 0:
             raise OSError(ctypes.get_errno(), "SG_IO failed on %s" % self.path)
         return bytes(data) if datalen else b""
@@ -259,6 +266,7 @@ class UsbBulkBackend:
         self.ep_out, self.ep_in = ep_out, ep_in
         self.dev = None
         self.tag = 0
+        self.last_status = 0
 
     @property
     def label(self):
@@ -297,6 +305,7 @@ class UsbBulkBackend:
                 got += len(chunk)
             data = data[:datalen]
         csw = bytes(self.dev.read(self.ep_in, 13, timeout=timeout * 1000))
+        self.last_status = csw[12] if len(csw) > 12 else -1
         return data
 
 
@@ -353,14 +362,29 @@ def find_secure_volume():
     return None
 
 
+last_detect_diag = []   # 最近一次探测的逐节点诊断（失败时给用户看）
+
+
 def detect_m200f():
-    """Auto-select backend per platform and return (backend, firmware)."""
+    """Auto-select backend per platform and return (backend, firmware).
+    On failure, last_detect_diag holds per-node diagnostics."""
+    global last_detect_diag
+    last_detect_diag = []
+
     def probe(b):
-        b.open()
+        try:
+            b.open()
+        except OSError as e:
+            last_detect_diag.append("%s: 打开失败 %s" % (b.label, e))
+            return None
         try:
             data = b.scsi(parse_hex(A1_00_FW_CDB), 128, timeout=5)
             if FW_MARKER in data:
                 return "".join(chr(x) if 32 <= x < 127 else "" for x in data[:64]).strip()
+            last_detect_diag.append("%s: A1 00 应答无 DM8381（%s）"
+                                    % (b.label, hx(data[:16])))
+        except OSError as e:
+            last_detect_diag.append("%s: A1 00 失败 %s" % (b.label, e))
         finally:
             b.close()
         return None
@@ -371,19 +395,17 @@ def detect_m200f():
             if fw:
                 return ScsiDevice(idx), fw
     if sys.platform.startswith("linux"):
-        for p in sorted(glob.glob("/dev/sg*")):
-            try:
-                fw = probe(SgBackend(p))
-            except OSError:
-                continue
+        # 优先 /dev/sgX；多 LUN 时 sg 节点可能只映射 CD-ROM，故再扫 /dev/sd[a-z]
+        for p in sorted(glob.glob("/dev/sg*")) + sorted(glob.glob("/dev/sd[a-z]")):
+            fw = probe(SgBackend(p))
             if fw:
                 return SgBackend(p), fw
     try:
         fw = probe(UsbBulkBackend())
         if fw:
             return UsbBulkBackend(), fw
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        last_detect_diag.append("pyusb: %s" % e)
     return None, None
 
 
@@ -458,7 +480,6 @@ def wake_unlock(backend, log=print):
             finger_down = True
             attempt += 1
             log("检测到手指（第 %d 次），正在识别..." % attempt, flush=True)
-            failed = False
             try:
                 poll(0x02)
                 for _ in range(6):
@@ -477,7 +498,6 @@ def wake_unlock(backend, log=print):
                             % (fid, "（%s Secure）" % vol if vol else ""), flush=True)
                         return 0
                     if rr[:2] == b"\xff\xfd":
-                        failed = True
                         log("第 %d 次识别失败。" % attempt, flush=True)
                         break
                     if rr == b"\x03\x04\xff":
@@ -485,7 +505,6 @@ def wake_unlock(backend, log=print):
                     log("未知应答 %s（本轮结束）" % hx(rr), flush=True)
                     break
             except OSError as e:
-                failed = True
                 log("识别流程出错：%s" % e, flush=True)
             reset_and_wait()
             finger_down = False
@@ -498,6 +517,7 @@ def platform_hints():
         return "请确认 U 盘已插入且未被其他程序独占（如 FingerTool.exe）。"
     if sys.platform.startswith("linux"):
         return ("Linux：确认 /dev/sgX 存在且有权限（udev 规则或 sudo）；"
+                "如无 /dev/sgX，先 sudo modprobe sg 再重插；"
                 "USB 兜底需先 sudo modprobe -r usb-storage。")
     if sys.platform == "darwin":
         return "macOS：请先安装 libusb（brew install libusb）并确认设备未被占用。"
@@ -514,6 +534,8 @@ def main():
     backend, fw = detect_m200f()
     if backend is None:
         print("未检测到 M200F。%s" % platform_hints())
+        for line in last_detect_diag:
+            print("  " + line)
         return 1
     print("检测到 M200F：%s" % backend.label)
     print("固件: %s" % fw)

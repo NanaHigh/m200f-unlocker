@@ -2,15 +2,15 @@
 
 ## Why this project exists
 
-The M200F is a fingerprint-encrypted USB flash drive. When plugged in, it
-exposes three logical units: a virtual CD-ROM (read-only, containing the
-official FingerTool.exe), a public partition, and an encrypted partition
-that only unlocks after fingerprint verification.
-
-The problem: the fingerprint sensor's wake-up and verification flow can only
-be triggered by the official Windows management software. There is no usable
-tool on Linux / macOS, so accessing the encrypted partition required a
-Windows machine every time.
+I own a Hikvision M200F fingerprint-encrypted USB drive. When plugged in, it
+presents three logical units: a read-only virtual CD-ROM that holds the
+official FingerTool.exe, a public partition accessible without
+authentication, and an encrypted partition that only unlocks after
+fingerprint verification. The catch is that the sensor's wake-up and
+verification flow can only be triggered by the official Windows software —
+there is no usable alternative on Linux or macOS, and the encrypted
+partition re-locks on every power loss, so in practice it can only be used
+on a Windows machine.
 
 This project replays the exact SCSI command sequence the official software
 sends to the hardware, so you can unlock your own drive with your own
@@ -22,8 +22,8 @@ How it was done: USB capture (USBPcap) of the official FingerTool session,
 then cross-checked with static analysis (capstone + Unicorn emulation).
 
 > ⚠️ **Verification status**: the protocol and tools have been verified on
-> **Windows only**. Linux/macOS binaries can be built, but the SCSI path has
-> not been validated on those platforms yet.
+> **Windows and Linux** (SG_IO via /dev/sgX, tested on a Debian/VMware setup)
+> are verified; **macOS** (pyusb fallback) is implemented but not yet validated.
 
 ## Device facts (confirmed on hardware)
 
@@ -78,12 +78,33 @@ python finger_tool_cli.py --detect        # detection only
 python finger_tool_gui.py                 # GUI (dark radar-animation theme)
 python finger_tool_gui.py --selftest      # GUI self-test (no window)
 
-# Linux / macOS (buildable, not yet validated)
+# Linux (SG_IO verified; grant /dev/sgX access — see "Linux quick start")
+# macOS (pyusb fallback, unverified; needs: brew install libusb)
 ```
 
 Both files are self-contained (no dependency on each other) and use only the
 Python standard library; `environment.yml` provides the minimal environment
 (Python 3.9 + tk).
+
+## Linux quick start
+
+```bash
+# 1) One-time setup: udev rule for /dev/sgX + load sg module (needs root)
+echo 'SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="21c4", ATTRS{idProduct}=="8381", MODE="0666"' \
+  | sudo tee /etc/udev/rules.d/99-m200f.rules
+sudo modprobe sg
+sudo udevadm control --reload && sudo udevadm trigger
+
+# 2) Re-plug the drive (in a VM, keep USB passthrough enabled)
+
+# 3) Verify and unlock (no sudo needed afterwards)
+python3 finger_tool_cli.py --detect   # should print /dev/sgX and firmware ID
+python3 finger_tool_cli.py            # place finger; 0E 00 XX = success
+python3 finger_tool_gui.py            # GUI
+```
+
+If `lsusb` does not show `21c4:8381`, the VM has not passed the USB device
+through — fix the passthrough first.
 
 ## Packaging & release
 

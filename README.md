@@ -2,11 +2,12 @@
 
 ## 为什么做这个逆向
 
-我有一把海康威视 M200F 指纹加密 U 盘：插入电脑后是三个逻辑单元——
-虚拟 CD-ROM（只读，放官方 FingerTool.exe）、公共分区（无需验证）、
-加密分区（指纹验证后才解锁）。问题在于：指纹传感器的"唤醒 + 验证"只能由
-Windows 下的官方管理软件触发，在 Linux / macOS 上完全没有可用工具，
-每次想用加密区都得插到 Windows 机器上先解锁。
+我有一把海康威视 M200F 指纹加密 U 盘。插入电脑后，它会呈现为三个逻辑
+单元：只读的虚拟 CD-ROM（存放官方 FingerTool.exe）、无需验证即可访问的
+公共分区，以及必须通过指纹验证才能解锁的加密分区。麻烦在于：指纹传感器
+的唤醒与验证流程只能由 Windows 下的官方管理软件触发，Linux 和 macOS 上
+没有任何可用的替代工具；而加密分区断电即重新锁定，所以这块加密区实际上
+只能在 Windows 机器上使用。
 
 这个项目的目标是**复刻官方软件发给硬件的那条指令序列**，从而在任何平台
 上都能用自己的指纹解锁自己的 U 盘（纯互操作用途，不涉及任何破解/绕过
@@ -15,8 +16,8 @@ Windows 下的官方管理软件触发，在 Linux / macOS 上完全没有可用
 方法：对官方 FingerTool 抓 USB 包（USBPcap）还原协议，并用静态分析
 （capstone + Unicorn 模拟）交叉验证。
 
-> ⚠️ **验证状态**：协议与工具目前**仅在 Windows 上经过真机验证**。
-> Linux/macOS 二进制已可构建，但 SCSI 通路尚未在真机验证，请自行评估使用。
+> ✅ **验证状态**：**Windows** 与 **Linux**（`/dev/sgX` SG_IO 通路，Debian/VMware
+> 环境实测）均经过真机验证；**macOS**（pyusb 兜底）已实现但尚未验证。
 
 ## 设备信息（真机确认）
 
@@ -70,11 +71,31 @@ python finger_tool_cli.py --detect        # 只检测设备
 python finger_tool_gui.py                 # 图形界面（深色雷达动画版）
 python finger_tool_gui.py --selftest      # 检测自检
 
-# Linux / macOS（已构建但未验证；需要时请先确认 SCSI 通路）
+# Linux（SG_IO 已验证；授权 /dev/sgX 见下方「Linux 快速上手」）
+# macOS（pyusb 兜底，未验证；需 brew install libusb）
 ```
 
 两个文件均为自包含实现（不互相依赖），仅使用 Python 标准库；
 `environment.yml` 提供最小运行环境（python 3.9 + tk）。
+
+## Linux 快速上手
+
+```bash
+# 1) 一次性授权 /dev/sgX（写 udev 规则 + 加载 sg 模块 + 重载，需 root）
+echo 'SUBSYSTEM=="scsi_generic", ATTRS{idVendor}=="21c4", ATTRS{idProduct}=="8381", MODE="0666"' \
+  | sudo tee /etc/udev/rules.d/99-m200f.rules
+sudo modprobe sg
+sudo udevadm control --reload && sudo udevadm trigger
+
+# 2) 重新插拔 U 盘（虚拟机请保持 USB 透传）
+
+# 3) 验证与解锁（普通用户即可）
+python3 finger_tool_cli.py --detect   # 应打印 /dev/sgX 与固件标识
+python3 finger_tool_cli.py            # 放手指解锁（0E 00 XX = 成功）
+python3 finger_tool_gui.py            # 图形界面
+```
+
+若 `lsusb` 看不到 `21c4:8381`，说明虚拟机未把 U 盘透传进来，先解决透传。
 
 ## 打包与发布
 

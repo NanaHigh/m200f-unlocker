@@ -3,7 +3,6 @@
 ## 本机构建（当前平台）/ Local build (current OS)
 
 ```bash
-conda activate finger   # 或任意 python 3.9 + tkinter 环境
 pip install pyinstaller
 
 python build.py              # onedir（推荐）
