@@ -316,7 +316,10 @@ public final class MainActivity extends android.app.Activity {
     private void verified(byte[] response) {
         int fingerprintId = response.length > 2 ? response[2] & 0xff : 0;
         append("指纹 " + fingerprintId + " 验证成功，设备已解锁加密分区。");
-        showStatus("指纹验证成功", GREEN);
+        // Keep the claimed interface briefly so Android vold sees a settled LUN1
+        // when it starts mounting the newly unlocked volume.
+        showStatus("指纹验证成功，等待挂载分区...", GREEN);
+        sleep(2000);
     }
 
     private boolean isActive(int id) { return !destroyed.get() && session.get() == id; }
