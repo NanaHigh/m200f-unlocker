@@ -1,0 +1,33 @@
+plugins { id 'com.android.application' }
+
+def signingProperties = new Properties()
+def signingPropertiesFile = rootProject.file('signing.properties')
+if (signingPropertiesFile.isFile()) {
+    signingPropertiesFile.withInputStream { signingProperties.load(it) }
+}
+def hasReleaseSigning = ['storeFile', 'storePassword', 'keyAlias', 'keyPassword'].every {
+    signingProperties.getProperty(it)
+}
+
+android { namespace 'com.example.m200funlocker'; compileSdk 35
+    defaultConfig { applicationId 'com.example.m200funlocker'; minSdk 26; targetSdk 35; versionCode 2; versionName '0.0.2' }
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile rootProject.file(signingProperties.getProperty('storeFile'))
+                storePassword signingProperties.getProperty('storePassword')
+                keyAlias signingProperties.getProperty('keyAlias')
+                keyPassword signingProperties.getProperty('keyPassword')
+            }
+        }
+    }
+    buildTypes {
+        release { signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug; minifyEnabled false }
+    }
+}
+
+android.applicationVariants.all { variant ->
+    variant.outputs.all { output ->
+        output.outputFileName = "m200f-unlocker-${variant.versionName}-${variant.buildType.name}.apk"
+    }
+}

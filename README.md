@@ -97,9 +97,23 @@ python3 finger_tool_gui.py            # 图形界面
 
 若 `lsusb` 看不到 `21c4:8381`，说明虚拟机未把 U 盘透传进来，先解决透传。
 
+## Android
+
+Android 原生版本位于 [`android/`](android/)，版本号与当前发布线保持为
+`0.0.2`。它使用 Android USB Host 和 Bulk-Only Transport，界面与 Python
+GUI 的状态机一致，需要 Android 8.0+、USB OTG 和可供电的 OTG 转接头。
+
+本地 release 构建使用 `android/NanaHigh.jks`。签名文件和
+`android/signing.properties` 已加入忽略列表，不应提交到仓库。GitHub Actions
+会在配置 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、
+`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD` 四个 Secrets 后自动构建并发布
+签名 APK；未配置时仍会构建 debug APK。
+
 ## 打包与发布
 
-本机构建：`python build.py`（仓库根目录）。
+本机构建：`python build.py`（仓库根目录）；Android 构建：在 `android/`
+目录运行 `gradle assembleDebug` 或 `gradle assembleRelease`；APK 文件名包含
+版本号，例如 `m200f-unlocker-0.0.2-release.apk`。
 
 ## 免责声明
 
@@ -108,4 +122,4 @@ python3 finger_tool_gui.py            # 图形界面
 
 ## 开源许可
 
-本项目以 MIT 许可证开源，
+本项目以 MIT 许可证开源。

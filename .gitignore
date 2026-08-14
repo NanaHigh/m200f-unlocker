@@ -15,3 +15,8 @@ dist/
 # IDE
 .idea/
 .vscode/
+
+# Android signing material (inject via GitHub Actions Secrets)
+android/NanaHigh.jks
+android/signing.properties
+android/.gradle/

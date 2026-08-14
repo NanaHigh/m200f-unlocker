@@ -82,6 +82,13 @@ python finger_tool_gui.py --selftest      # GUI self-test (no window)
 # macOS (pyusb fallback, unverified; needs: brew install libusb)
 ```
 
+## Android
+
+A native Android USB-host port is in [`android/`](android/). It follows the
+same on-device fingerprint-verification protocol and requires an OTG-capable
+Android 8.0+ device. See [`android/README.md`](android/README.md) for build
+requirements and the Android USB-stack limitation.
+
 Both files are self-contained (no dependency on each other) and use only the
 Python standard library; `environment.yml` provides the minimal environment
 (Python 3.9 + tk).
