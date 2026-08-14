@@ -26,9 +26,9 @@
 | VID / PID | 0x21C4 / 0x8381（Longsys 江波龙） |
 | 主控 / 固件 | DM8381，CODEV06.46（2018-07-13） |
 | 接口 | Mass Storage / SCSI / Bulk-Only（EP OUT 0x02, IN 0x82） |
-| LUN 0 | 指纹/加密控制器（所有厂商命令都在这里） |
-| LUN 1 | 数据分区（指纹验证后由系统挂载为卷标 Secure 的卷） |
-| LUN 2 | 虚拟 CD-ROM（2048B 扇区，36MB，放 FingerTool） |
+| LUN 0 | 公共分区兼指纹/加密控制器（所有厂商命令都在此处读写） |
+| LUN 1 | 加密分区（指纹验证后由系统挂载为卷标 Secure 的卷） |
+| LUN 2 | 虚拟 CD-ROM（1.98MB，存放文档和FingerTool） |
 
 ## 确认的逆向结果（指令序列）
 

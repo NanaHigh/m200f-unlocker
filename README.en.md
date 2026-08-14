@@ -32,9 +32,9 @@ then cross-checked with static analysis (capstone + Unicorn emulation).
 | VID / PID | 0x21C4 / 0x8381 (Longsys) |
 | Controller / firmware | DM8381, CODEV06.46 (2018-07-13) |
 | Interface | Mass Storage / SCSI / Bulk-Only (EP OUT 0x02, IN 0x82) |
-| LUN 0 | Fingerprint / security controller (all vendor commands go here) |
-| LUN 1 | Data partition (mounted by the OS as a volume labeled "Secure" after verification) |
-| LUN 2 | Virtual CD-ROM (2048-byte sectors, hosts FingerTool) |
+| LUN 0 | Public partition and fingerprint/encryption controller (all vendor commands are read and written here) |
+| LUN 1 | Encrypted partition (mounted by the system as a volume labeled "Secure" after fingerprint authentication) |
+| LUN 2 | Virtual CD-ROM (1.98MB, stores documents and FingerTool) |
 
 ## Confirmed reverse-engineered protocol
 
